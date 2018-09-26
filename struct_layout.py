@@ -32,6 +32,38 @@ import sys
 import subprocess
 import os
 from operator import attrgetter
+import pprint
+import traceback
+
+import beeprint
+from IPython.lib.pretty import pprint as ipprint
+from nested_lookup import nested_lookup
+import pdb
+
+bpc = beeprint.Config()
+bpc.text_autoclip_enable = False
+
+mah_item  = {'fields': {'AT_name': 'uint64_t', 'AT_decl_file': '/Applications/Xcode10b5.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_types/_uint64_t.h', 'AT_type': '0x00000bef', 'AT_decl_line': '31'}, 'has_children': False, 'tag': 'TAG_typedef', 'addr': '0x00000580'}
+
+mah_item3 = {'fields': {'AT_name': 'uint64_t', 'AT_decl_file': '/Applications/Xcode10b5.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_types/_uint64_t.h', 'AT_type': '0x00000bef', 'AT_decl_line': '31'}, 'has_children': False, 'tag': 'TAG_typedef', 'addr': '0x00000580'}
+
+def findv(val, dictionary, prepath=()):
+	for k, v in dictionary.iteritems():
+		path = prepath + (k,)
+		if v == val:
+			print "k: {} v:{}".format(k, v)
+			yield path
+		elif isinstance(v, dict):
+			for result in findv(val, v, path):
+				yield result
+		elif isinstance(v, list):
+			for idx, d in enumerate(v):
+				if d == val:
+					print "k: {} v:{}".format(k, d)
+					path = path + (idx,)
+					yield path
+				for result in findv(val, d, path):
+					yield result
 
 pointer_size = None
 
@@ -83,6 +115,7 @@ class DwarfTypedef(DwarfBase):
 			return self._types[self._underlying_type].name()
 
 	def full_name(self):
+		# beeprint.pp(self)
 		if self._underlying_type == 0:
 			return 'void'
 		else:
@@ -216,7 +249,7 @@ class DwarfMember:
 	def __init__(self, item, types):
 		self._types = types
 		self._underlying_type = item['fields']['AT_type']
-		self._offset = int(item['fields']['AT_data_member_location'])
+		self._offset = int(item['fields']['AT_data_member_location'], 16)
 		if 'AT_name' in item['fields']:
 			self._name = item['fields']['AT_name']
 		else:
@@ -338,6 +371,7 @@ class DwarfStructType(DwarfBase):
 				self._fields.append(DwarfMember(m, types))
 		except Exception, e:
 			print 'EXCEPTION! %s: ' % self._name , e
+			traceback.print_exc(e)
 			pass
 
 		self._fields = sorted(self._fields, key=attrgetter('_offset'))
@@ -496,6 +530,9 @@ def parse_recursive(lno, lines):
 
 	lno, item = parse_tag(lno, lines)
 	if item == None: return lno, None
+	# if item['addr'] == '0x00000580':
+	# 	pdb.set_trace()
+	# 	pass
 
 	children = []
 	if not item['has_children']:
@@ -511,6 +548,10 @@ def parse_recursive(lno, lines):
 	return lno, item
 
 def collect_types(tree, scope, types, typedefs):
+
+	# if 'AT_name' in tree['fields'] and tree['fields']['AT_name'] == 'uint64_t':
+	# 	pdb.set_trace()
+	# 	pass
 
 	if 'AT_name' in tree['fields']:
 		inner_scope = scope + '::' + tree['fields']['AT_name']
@@ -565,7 +606,8 @@ def collect_types(tree, scope, types, typedefs):
 				collect_types(c, inner_scope, types, typedefs)
 	
 	elif tree['tag'] == 'TAG_compile_unit' \
-		or tree['tag'] == 'TAG_subprogram':
+		or tree['tag'] == 'TAG_subprogram' \
+		or tree['tag'] == 'TAG_module':
 		if 'children' in tree:
 			for c in tree['children']:
 				collect_types(c, scope, types, typedefs)
@@ -677,10 +719,20 @@ def process_dwarf_file(input_file):
 
 	while lno < len(lines):
 		lno, tree = parse_recursive(lno, lines)
-		if tree != None: items.append(tree)
+		if tree != None:
+			items.append(tree)
 	
+	# print 'ITEMZ'
+	# beeprint.pp(items, max_depth=99999999999, width=9999999999, sort_keys=False, config=bpc)
+	# pprint.pprint(items)
 	for i in items:
 		collect_types(i, '', types, typedefs)
+		# if False and list(findv(mah_item, i)) != []:
+		# 	print 'MAH TYPES'
+		# 	pprint.pprint(types)
+		# 	print 'MAH TYPEDEFS'
+		# 	pprint.pprint(typedefs)
+		# 	print 'MAH DONENESS'
 
 	already_printed = set()
 
